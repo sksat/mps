@@ -283,7 +283,7 @@ void sim_loop(std::vector<particle_t> &particle){
 		viscous_term(particle);
 
 		// 仮の加速度 <- 外力(重力)項
-//		external_term(particle);
+		external_term(particle);
 
 		// 仮の速度,仮の位置を更新
 //		tmp_update_vp(particle);
@@ -316,6 +316,7 @@ void sim_loop(std::vector<particle_t> &particle){
 		<< (msec / 1000.0) << "sec" << std::endl;
 }
 
+// 粘性項
 void viscous_term(std::vector<particle_t> &particle){
 	const sksat::math::vector<Float> vec_zero = {0.0, 0.0, 0.0};
 	for(int i=0;i<particle.size();i++){
@@ -336,5 +337,13 @@ void viscous_term(std::vector<particle_t> &particle){
 			acc = vel_diff * w;
 		}
 		p.acc = acc * params::coeff_viscous;
+	}
+}
+
+// 外力項
+void external_term(std::vector<particle_t> &particle){
+	for(auto &p : particle){
+		if(p.type != particle_t::fluid) continue;
+		p.acc += params::gravity; // 重力ベクトル
 	}
 }

@@ -2,6 +2,8 @@
 #include <fstream>
 #include <vector>
 #include <filesystem>
+#include <cmath>
+#include <sksat/math/vector.hpp>
 
 using Float = double;
 
@@ -9,19 +11,17 @@ using Float = double;
 constexpr Float dt = 0.0001;
 constexpr Float time_max = 1.0;
 
-// 3次元ベクトル量
-struct vec_t {
-	Float x, y, z;
-};
+// 3次元ベクトル量: vec_t -> sksat::math::vector
 
 // 粒子
 struct particle_t {
 	enum type_t {
 		liquid,
 		wall,
+		ghost,
 	};
 	type_t type;
-	vec_t pos, vel, acc;
+	sksat::math::vector<Float> pos, vel, acc;
 };
 
 
@@ -32,6 +32,10 @@ const std::string byte2str(const uintmax_t &size);
 // .profファイルの読み書き
 void load_data(const std::string &fname, std::vector<particle_t> &particle);
 void save_data(const std::string &fname, const std::vector<particle_t> &particle);
+
+// 計算に関わる関数
+// 事前に計算できるパラメータをセットする
+void set_param(const std::vector<particle_t> &particle);
 
 // arg: init.prof out_dir
 int main(int argc, char **argv){
@@ -45,6 +49,8 @@ int main(int argc, char **argv){
 	if(!check_outdir(out_dir)) return -1;
 
 	load_data(argv[1], particle);
+
+	set_param(particle);
 
 	return 0;
 }
@@ -74,6 +80,8 @@ bool check_outdir(const std::filesystem::path &out_dir){
 		<< ", free: " << byte2str(si.free)
 		<< ", available: " << byte2str(si.available)
 		<< ")" << std::endl;
+
+	//TODO: ディレクトリ容量が足りなくなりそうだったら知らせる
 
 	return true;
 }
@@ -130,4 +138,31 @@ void save_data(const std::string &fname, const std::vector<particle_t> &particle
 			<< p.vel.x << " " << p.vel.y << " " << p.vel.z << " "
 			<< 0.0 << " " << 0.0 << std::endl;
 	}
+}
+
+// set_paramで使う関数
+// 液体粒子の最小距離を求める
+Float calc_min_dist(const std::vector<particle_t> &particle){
+	Float dist2 = 0.0;
+	for(int i=0;i<particle.size();i++){
+		if(particle[i].type != particle_t::liquid) continue;
+		for(int k=0;k<particle.size();k++){
+			if(i == k) continue;
+			if(particle[k].type != particle_t::liquid) continue;
+			auto &pos_i = particle[i].pos;
+			auto &pos_k = particle[k].pos;
+			auto vd = pos_k - pos_i;
+			auto d2 = (vd.x*vd.x) + (vd.y*vd.y) + (vd.z*vd.z);
+			if(dist2 == 0.0 || d2 < dist2) dist2 = d2;
+		}
+	}
+	return std::sqrt(dist2);
+}
+
+void set_param(const std::vector<particle_t> &particle){
+	// 事前に計算できるパラメータを求める
+	auto pcl_dst = calc_min_dist(particle); //TODO: とりあえず液体粒子の最小距離にしている．計算を途中で再開する場合これは使えない．
+
+	// パラメータの表示
+	std::cout << "particle distance: " << pcl_dst << std::endl;
 }

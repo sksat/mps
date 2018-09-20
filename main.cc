@@ -20,6 +20,8 @@ struct particle_t {
 	sksat::math::vector<Float> pos, vel, acc;
 };
 
+std::filesystem::path out_dir; // 保存先ディレクトリ
+
 namespace params {
 	// コンパイル時に決定しておく定数
 	constexpr Float dt = 0.0001;
@@ -33,6 +35,9 @@ namespace params {
 	Float r, r2;	// 影響半径とその２乗
 	Float n0;		// 粒子数密度
 	Float lamda;	// ラプラシアンモデルの係数λ
+
+	// 変数
+	Float time;
 }
 
 // 保存先ディレクトリのチェック
@@ -50,6 +55,8 @@ void set_param(const std::vector<particle_t> &particle);
 inline Float weight(const Float dist, const Float re){
 	return ((re/dist) - 1.0);
 }
+// 計算のメインループ
+void sim_loop();
 
 // arg: init.prof out_dir
 int main(int argc, char **argv){
@@ -59,12 +66,14 @@ int main(int argc, char **argv){
 	if(argc != 3) return -1;
 
 	// output directoryの準備
-	fs::path out_dir(argv[2]);
+	out_dir = argv[2];
 	if(!check_outdir(out_dir)) return -1;
 
 	load_data(argv[1], particle);
 
 	set_param(particle);
+
+	sim_loop();
 
 	return 0;
 }
@@ -206,11 +215,42 @@ void set_param(const std::vector<particle_t> &particle){
 	params::n0 = tn0;
 	params::lamda = tlmd / params::n0;
 
+	params::time = 0.0;
+
 	// パラメータの表示
 	std::cout
 		<< "parameters:" << std::endl
 		<< "\tparticle distance: " << params::pcl_dst << std::endl
 		<< "\tn0: " << params::n0 << std::endl
 		<< "\tλ : " << params::lamda << std::endl
+		<< "\ttime: " << params::time << std::endl
 		<< std::endl;
+}
+
+void sim_loop(){
+	size_t iloop = 0; // ループの回数
+	using clock = std::chrono::high_resolution_clock;
+	clock::time_point begin, end;
+
+	std::cout << "start simulation." << std::endl;
+
+	begin = clock::now();
+	// メインループ
+	while(true){
+		if(iloop % 100 == 0){
+			std::cout << "iloop=" << iloop << ", time=" << params::time << std::endl;
+		}
+		if(params::time >= params::time_max) break;
+
+		iloop++;
+		params::time += params::dt;
+	}
+	end = clock::now();
+	auto diff = end - begin;
+	auto mdiff= std::chrono::duration_cast<std::chrono::milliseconds>(diff);
+	auto msec = static_cast<double>(mdiff.count());
+
+	std::cout << "end simulation." << std::endl
+		<< "simulation time: "
+		<< (msec / 1000.0) << "sec" << std::endl;
 }

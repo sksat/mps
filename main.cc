@@ -34,8 +34,12 @@ void load_data(const std::string &fname, std::vector<particle_t> &particle);
 void save_data(const std::string &fname, const std::vector<particle_t> &particle);
 
 // 計算に関わる関数
-// 事前に計算できるパラメータをセットする
+// 事前に計算できるパラメータを計算
 void set_param(const std::vector<particle_t> &particle);
+// 重み関数
+inline Float weight(const Float dist, const Float re){
+	return ((re/dist) - 1.0);
+}
 
 // arg: init.prof out_dir
 int main(int argc, char **argv){

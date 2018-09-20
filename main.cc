@@ -14,7 +14,7 @@ using Float = double;
 // 粒子
 struct particle_t {
 	enum type_t {
-		liquid,
+		fluid,
 		wall,
 		ghost,
 	};
@@ -26,17 +26,19 @@ std::filesystem::path out_dir; // 保存先ディレクトリ
 
 namespace params {
 	// コンパイル時に決定しておく定数
-	constexpr Float dt = 0.0001;
+	constexpr Float dt = 0.0005;				// 時間刻み
 	constexpr Float time_max = 1.0;
-	constexpr int dim = 3;
+	constexpr int dim = 3;						// 次元
+	constexpr Float kinem_viscous = 0.000001;	// 動粘性係数
 	const sksat::math::vector gravity = {0.0, -9.8, 0.0}; //TODO: sksat::math::vectorのconstexprコンストラクタ
 	constexpr Float sound_vel = 22.0; // 音速
 
 	// 事前に計算しておく定数
-	Float pcl_dst;	// 初期粒子間距離
-	Float r, r2;	// 影響半径とその２乗
-	Float n0;		// 粒子数密度
-	Float lamda;	// ラプラシアンモデルの係数λ
+	Float pcl_dst;		// 初期粒子間距離
+	Float r, r2;		// 影響半径とその２乗
+	Float n0;			// 粒子数密度
+	Float lamda;		// ラプラシアンモデルの係数λ
+	Float coeff_viscous;// 粘性項の係数
 
 	// 変数
 	Float time;
@@ -59,6 +61,20 @@ inline Float weight(const Float dist, const Float re){
 }
 // 計算のメインループ
 void sim_loop(std::vector<particle_t> &particle);
+// 粘性項
+void viscous_term(std::vector<particle_t> &particle);
+// 外力項
+void external_term(std::vector<particle_t> &particle);
+// 仮の加速度で速度・位置の更新
+void tmp_update_vp(std::vector<particle_t> &particle);
+// 衝突応答
+void check_collision(std::vector<particle_t> &particle);
+// 仮圧力,圧力の計算
+void make_press(std::vector<particle_t> &particle);
+// 圧力勾配項
+void press_grad_term(std::vector<particle_t> &particle);
+// 速度・位置の修正
+void update_vp(std::vector<particle_t> &particle);
 
 // arg: init.prof out_dir
 int main(int argc, char **argv){
@@ -128,7 +144,7 @@ const std::string byte2str(const uintmax_t &size){
 void load_data(const std::string &fname, std::vector<particle_t> &particle){
 	std::ifstream ifs(fname);
 	int num;
-	int liquid = 0, wall =0;
+	int fluid = 0, wall =0;
 	ifs >> num;
 	particle.resize(num);
 
@@ -144,13 +160,13 @@ void load_data(const std::string &fname, std::vector<particle_t> &particle){
 			>> p.vel.x >> p.vel.y >> p.vel.z
 			>> prs >> pav;
 		p.type = static_cast<particle_t::type_t>(t);
-		if(p.type == particle_t::liquid) liquid++;
+		if(p.type == particle_t::fluid) fluid++;
 		else if(p.type == particle_t::wall) wall++;
 	}
 
 	std::cout << std::endl;
 	std::cout << "particle num: " << particle.size()
-		<< " (liquid: " << liquid << ", wall: " << wall << ")" << std::endl;
+		<< " (fluid: " << fluid << ", wall: " << wall << ")" << std::endl;
 }
 
 void save_data(const std::string &fname, const std::vector<particle_t> &particle){
@@ -170,10 +186,10 @@ void save_data(const std::string &fname, const std::vector<particle_t> &particle
 Float calc_min_dist(const std::vector<particle_t> &particle){
 	Float dist2 = 0.0;
 	for(int i=0;i<particle.size();i++){
-		if(particle[i].type != particle_t::liquid) continue;
+		if(particle[i].type != particle_t::fluid) continue;
 		for(int k=0;k<particle.size();k++){
 			if(i == k) continue;
-			if(particle[k].type != particle_t::liquid) continue;
+			if(particle[k].type != particle_t::fluid) continue;
 			auto &pos_i = particle[i].pos;
 			auto &pos_k = particle[k].pos;
 			auto vd = pos_k - pos_i;
@@ -217,6 +233,9 @@ void set_param(const std::vector<particle_t> &particle){
 	params::n0 = tn0;
 	params::lamda = tlmd / params::n0;
 
+	// 粘性項の係数
+	params::coeff_viscous = 2.0 * params::kinem_viscous * params::dim / (params::n0 * params::lamda);
+
 	params::time = 0.0;
 
 	// パラメータの表示
@@ -258,6 +277,32 @@ void sim_loop(std::vector<particle_t> &particle){
 			if(params::time >= params::time_max) break;
 		}
 
+		// 計算部分
+
+		// 仮の加速度 <- 粘性項
+		viscous_term(particle);
+
+		// 仮の加速度 <- 外力(重力)項
+//		external_term(particle);
+
+		// 仮の速度,仮の位置を更新
+//		tmp_update_vp(particle);
+
+		// 衝突判定
+//		check_collision(particle);
+
+		// 仮の圧力
+//		make_press(particle);
+
+		// 加速度の修正量 <- 仮の圧力
+//		press_grad_term(particle);
+
+		// 速度,位置を修正
+//		update_vp(particle);
+
+		// 圧力の修正
+//		make_press(particle);
+
 		iloop++;
 		params::time += params::dt;
 	}
@@ -269,4 +314,27 @@ void sim_loop(std::vector<particle_t> &particle){
 	std::cout << "end simulation." << std::endl
 		<< "simulation time: "
 		<< (msec / 1000.0) << "sec" << std::endl;
+}
+
+void viscous_term(std::vector<particle_t> &particle){
+	const sksat::math::vector<Float> vec_zero = {0.0, 0.0, 0.0};
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+		if(p.type != particle_t::fluid) continue;
+		auto acc = vec_zero;
+		// 周囲の粒子との計算 TODO: バケット構造で近傍粒子探索
+		for(int k=0;k<particle.size();k++){
+			if(k == i) continue;
+			auto &p_k = particle[k];
+			if(p_k.type == particle_t::ghost) continue; // ゴースト粒子は無視
+			auto vd = p_k.pos - p.pos;
+			auto dist2 = (vd.x*vd.x) + (vd.y*vd.y) + (vd.z*vd.z);
+			if(params::r2 <= dist2) continue; // 影響半径外の粒子は無視
+			auto dist = std::sqrt(dist2);
+			auto w = weight(dist, params::r); // 重み
+			auto vel_diff= p_k.vel - p.vel;
+			acc = vel_diff * w;
+		}
+		p.acc = acc * params::coeff_viscous;
+	}
 }

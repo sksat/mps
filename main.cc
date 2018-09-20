@@ -7,10 +7,6 @@
 
 using Float = double;
 
-// 定数
-constexpr Float dt = 0.0001;
-constexpr Float time_max = 1.0;
-
 // 3次元ベクトル量: vec_t -> sksat::math::vector
 
 // 粒子
@@ -24,6 +20,20 @@ struct particle_t {
 	sksat::math::vector<Float> pos, vel, acc;
 };
 
+namespace params {
+	// コンパイル時に決定しておく定数
+	constexpr Float dt = 0.0001;
+	constexpr Float time_max = 1.0;
+	constexpr int dim = 3;
+	const sksat::math::vector gravity = {0.0, -9.8, 0.0}; //TODO: sksat::math::vectorのconstexprコンストラクタ
+	constexpr Float sound_vel = 22.0; // 音速
+
+	// 事前に計算しておく定数
+	Float pcl_dst;	// 初期粒子間距離
+	Float r, r2;	// 影響半径とその２乗
+	Float n0;		// 粒子数密度
+	Float lamda;	// ラプラシアンモデルの係数λ
+}
 
 // 保存先ディレクトリのチェック
 bool check_outdir(const std::filesystem::path &out_dir);
@@ -165,8 +175,42 @@ Float calc_min_dist(const std::vector<particle_t> &particle){
 
 void set_param(const std::vector<particle_t> &particle){
 	// 事前に計算できるパラメータを求める
-	auto pcl_dst = calc_min_dist(particle); //TODO: とりあえず液体粒子の最小距離にしている．計算を途中で再開する場合これは使えない．
+	params::pcl_dst = calc_min_dist(particle); //TODO: とりあえず液体粒子の最小距離にしている．計算を途中で再開する場合これは使えない．
+
+	params::r = params::pcl_dst * 2.1; // 影響半径
+	params::r2= params::r * params::r;
+
+	// 粒子を仮想的に格子状に配置
+	// n0:		粒子数密度の基準値
+	// lamda:	ラプラシアンモデルの係数λ
+	Float tn0 = 0.0, tlmd = 0.0;
+	for(int ix=-4;ix<5;ix++){
+		for(int iy=-4;iy<5;iy++){
+			for(int iz=-4;iz<5;iz++){
+				sksat::math::vector<Float> d;
+				d.x = static_cast<Float>(ix);
+				d.y = static_cast<Float>(iy);
+				d.z = static_cast<Float>(iz);
+				d = params::pcl_dst * d;
+				auto d2 = (d.x*d.x) + (d.y*d.y) + (d.z*d.z);
+				if(d2 <= params::r2){
+					if(d2 == 0.0) continue;
+					Float dist = std::sqrt(d2);
+					auto w = weight(dist, params::r);
+					tn0 += w;
+					tlmd+= d2 * w;
+				}
+			}
+		}
+	}
+	params::n0 = tn0;
+	params::lamda = tlmd / params::n0;
 
 	// パラメータの表示
-	std::cout << "particle distance: " << pcl_dst << std::endl;
+	std::cout
+		<< "parameters:" << std::endl
+		<< "\tparticle distance: " << params::pcl_dst << std::endl
+		<< "\tn0: " << params::n0 << std::endl
+		<< "\tλ : " << params::lamda << std::endl
+		<< std::endl;
 }

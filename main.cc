@@ -1,5 +1,7 @@
 #include <iostream>
 #include <fstream>
+#include <sstream>
+#include <iomanip>
 #include <vector>
 #include <filesystem>
 #include <cmath>
@@ -56,7 +58,7 @@ inline Float weight(const Float dist, const Float re){
 	return ((re/dist) - 1.0);
 }
 // 計算のメインループ
-void sim_loop();
+void sim_loop(std::vector<particle_t> &particle);
 
 // arg: init.prof out_dir
 int main(int argc, char **argv){
@@ -73,7 +75,7 @@ int main(int argc, char **argv){
 
 	set_param(particle);
 
-	sim_loop();
+	sim_loop(particle);
 
 	return 0;
 }
@@ -227,8 +229,9 @@ void set_param(const std::vector<particle_t> &particle){
 		<< std::endl;
 }
 
-void sim_loop(){
+void sim_loop(std::vector<particle_t> &particle){
 	size_t iloop = 0; // ループの回数
+	size_t ifile = 0; // 保存ファイルの番号 TODO: 途中から計算する場合の初期値の設定
 	using clock = std::chrono::high_resolution_clock;
 	clock::time_point begin, end;
 
@@ -237,10 +240,23 @@ void sim_loop(){
 	begin = clock::now();
 	// メインループ
 	while(true){
+		// ログ表示
 		if(iloop % 100 == 0){
 			std::cout << "iloop=" << iloop << ", time=" << params::time << std::endl;
 		}
-		if(params::time >= params::time_max) break;
+
+		// ファイル保存
+		if(iloop % 100 == 0){
+			std::stringstream fname;
+			fname << "output"
+				<< std::setfill('0') << std::setw(10)
+				<< iloop/100
+				<< ".prof";
+			auto fpath = out_dir / fname.str();
+			save_data(fpath, particle);
+			// 終了条件
+			if(params::time >= params::time_max) break;
+		}
 
 		iloop++;
 		params::time += params::dt;

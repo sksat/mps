@@ -7,7 +7,7 @@ CC	= gcc
 CXX	= g++
 
 CFLAGS	=
-CXXFLAGS= -std=c++17
+CXXFLAGS= -std=c++17 -O3
 LDFLAGS	= -lstdc++fs
 
 %.o: %.c

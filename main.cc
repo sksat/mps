@@ -36,12 +36,13 @@ namespace params {
 	constexpr Float sound_vel = 22.0; // 音速
 
 	// 事前に計算しておく定数
-	Float pcl_dst;		// 初期粒子間距離
-	Float r, r2;		// 影響半径とその２乗
-	Float n0;			// 粒子数密度
-	Float lamda;		// ラプラシアンモデルの係数λ
-	Float coeff_viscous;// 粘性項の係数
-	Float coeff_mkpress;// 圧力計算の係数
+	Float pcl_dst;			// 初期粒子間距離
+	Float r, r2;			// 影響半径とその２乗
+	Float n0;				// 粒子数密度
+	Float lamda;			// ラプラシアンモデルの係数λ
+	Float coeff_viscous;	// 粘性項の係数
+	Float coeff_mkpress;	// 圧力計算の係数
+	Float coeff_press_grad; // 圧力勾配項の係数
 
 	// 変数
 	Float time;
@@ -242,6 +243,9 @@ void set_param(const std::vector<particle_t> &particle){
 	// 圧力計算の係数
 	params::coeff_mkpress = params::sound_vel*params::sound_vel / params::n0;
 
+	// 圧力勾配項の係数
+	params::coeff_press_grad = -1.0 * params::dim / params::n0;
+
 	params::time = 0.0;
 
 	// パラメータの表示
@@ -303,7 +307,7 @@ void sim_loop(std::vector<particle_t> &particle){
 		make_press(particle);
 
 		// 加速度の修正量 <- 仮の圧力
-//		press_grad_term(particle);
+		press_grad_term(particle);
 
 		// 速度,位置を修正
 //		update_vp(particle);
@@ -391,5 +395,38 @@ void make_press(std::vector<particle_t> &particle){
 			* (ni - params::n0)
 			* params::coeff_mkpress
 			* params::dens[p.type];
+	}
+}
+
+// 圧力勾配項
+void press_grad_term(std::vector<particle_t> &particle){
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+		if(p.type != particle_t::fluid) continue;
+		Float press_min = 0.0;
+		// 影響半径内の粒子の圧力の最小値を求める
+		for(int k=0;k<particle.size();k++){
+			if(i == k) continue;
+			auto &p_k = particle[k];
+			if(p_k.type == particle_t::ghost) continue;
+			auto pd = p_k.pos - p.pos;
+			auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
+			if(params::r2 <= dist2) continue;
+			if(press_min > p.press) press_min = p.press;
+		}
+
+		sksat::math::vector<Float> acc = {0.0, 0.0, 0.0};
+		for(int k=0;k<particle.size();k++){
+			if(i == k) continue;
+			auto &p_k = particle[k];
+			if(p_k.type == particle_t::ghost) continue;
+			auto pd = p_k.pos - p.pos;
+			auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
+			if(params::r2 <= dist2) continue;
+			auto dist = std::sqrt(dist2);
+			auto w = weight(dist, params::r);
+			acc += pd * (w * (p_k.press - press_min) / dist2);
+		}
+		p.acc = acc * (params::coeff_press_grad / params::dens[particle_t::fluid]);
 	}
 }

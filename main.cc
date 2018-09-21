@@ -310,7 +310,7 @@ void sim_loop(std::vector<particle_t> &particle){
 		press_grad_term(particle);
 
 		// 速度,位置を修正
-//		update_vp(particle);
+		update_vp(particle);
 
 		// 圧力の修正
 		make_press(particle);
@@ -428,5 +428,14 @@ void press_grad_term(std::vector<particle_t> &particle){
 			acc += pd * (w * (p_k.press - press_min) / dist2);
 		}
 		p.acc = acc * (params::coeff_press_grad / params::dens[particle_t::fluid]);
+	}
+}
+
+void update_vp(std::vector<particle_t> &particle){
+	for(auto &p : particle){
+		if(p.type != particle_t::fluid) continue;
+		p.vel += p.acc * params::dt;
+		p.pos += p.acc * params::dt * params::dt;
+		p.acc = {0.0, 0.0, 0.0};
 	}
 }

@@ -1,4 +1,6 @@
 mps
 *.prof
 
+*.gif
+
 *.o

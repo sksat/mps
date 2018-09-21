@@ -27,5 +27,8 @@ run: $(TARGET)
 plot:
 	gnuplot -c anim.gp $(OUT_DIR) $(D_PLOT) $(PLOT_SIZE)
 
+vtk:
+	ls $(OUT_DIR)/*.prof | xargs -i util/prof2vtk.rb "{}"
+
 $(TARGET): $(OBJS)
 	$(CXX) -o $@ $(OBJS) $(LDFLAGS)

@@ -11,6 +11,6 @@ set yrange[-size*0.1:size*0.5]
 
 while(n<=n1){
 	frame = sprintf("%s/output%010d.prof", ARG1, n)
-	plot frame every ::1 u 3:4 w p title frame
+	plot frame every ::1 u 3:5 w p title frame
 	n = n + dn
 }

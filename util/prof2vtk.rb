@@ -16,9 +16,9 @@ def prof2vtk(fname1, fname2)
 	for l in lines do
 		dat = l.split
 		type[i]= dat[1]
-		pos[i*3]	= dat[2]
-		pos[i*3+1]	= dat[3]
-		pos[i*3+2]	= dat[4]
+		pos[i*3]	= dat[2].to_f
+		pos[i*3+1]	= dat[3].to_f
+		pos[i*3+2]	= dat[4].to_f
 		vel[i*3]	= dat[5].to_f
 		vel[i*3+1]	= dat[6].to_f
 		vel[i*3+2]	= dat[7].to_f

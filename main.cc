@@ -32,12 +32,16 @@ namespace params {
 	constexpr int dim = 3;						// 次元
 	constexpr Float kinem_viscous = 0.000001;	// 動粘性係数
 	const sksat::math::vector gravity = {0.0, -9.8, 0.0}; //TODO: sksat::math::vectorのconstexprコンストラクタ
-	constexpr Float dens[] = {1000, 1000};
-	constexpr Float sound_vel = 22.0; // 音速
+	constexpr Float dens[] = {1000, 1000};		// 密度
+	constexpr Float sound_vel = 22.0;			// 音速
+	constexpr Float col_rat = 0.2;				// 接近した粒子の反発率
+	constexpr Float col = 1.0 + col_rat;
+	constexpr Float dst_lmt_rat = 0.9;			// これ以上の接近を許さない距離の係数
 
 	// 事前に計算しておく定数
 	Float pcl_dst;			// 初期粒子間距離
 	Float r, r2;			// 影響半径とその２乗
+	Float rlim, rlim2;		// これ以上の粒子間の接近を許さない距離
 	Float n0;				// 粒子数密度
 	Float lamda;			// ラプラシアンモデルの係数λ
 	Float coeff_viscous;	// 粘性項の係数
@@ -211,6 +215,9 @@ void set_param(const std::vector<particle_t> &particle){
 	params::r = params::pcl_dst * 2.1; // 影響半径
 	params::r2= params::r * params::r;
 
+	params::rlim = params::pcl_dst * params::dst_lmt_rat;
+	params::rlim2= params::rlim * params::rlim;
+
 	// 粒子を仮想的に格子状に配置
 	// n0:		粒子数密度の基準値
 	// lamda:	ラプラシアンモデルの係数λ
@@ -252,6 +259,8 @@ void set_param(const std::vector<particle_t> &particle){
 	std::cout
 		<< "parameters:" << std::endl
 		<< "\tparticle distance: " << params::pcl_dst << std::endl
+		<< "\tr: " << params::r << std::endl
+		<< "\trlim: " << params::rlim << std::endl
 		<< "\tn0: " << params::n0 << std::endl
 		<< "\tλ : " << params::lamda << std::endl
 		<< "\tviscous coeff: " << params::coeff_viscous << std::endl
@@ -272,16 +281,16 @@ void sim_loop(std::vector<particle_t> &particle){
 	// メインループ
 	while(true){
 		// ログ表示
-		if(iloop % 100 == 0){
+		if(iloop % 1 == 0){
 			std::cout << "iloop=" << iloop << ", time=" << params::time << std::endl;
 		}
 
 		// ファイル保存
-		if(iloop % 100 == 0){
+		if(iloop % 1 == 0){
 			std::stringstream fname;
 			fname << "output"
 				<< std::setfill('0') << std::setw(10)
-				<< iloop/100
+				<< iloop/1
 				<< ".prof";
 			auto fpath = out_dir / fname.str();
 			save_data(fpath, particle);
@@ -301,7 +310,7 @@ void sim_loop(std::vector<particle_t> &particle){
 		update_vp_tmp(particle);
 
 		// 衝突判定
-//		check_collision(particle);
+		check_collision(particle);
 
 		// 仮の圧力
 		make_press(particle);
@@ -372,7 +381,29 @@ void update_vp_tmp(std::vector<particle_t> &particle){
 
 // 剛体衝突
 void check_collision(std::vector<particle_t> &particle){
-	//TODO
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+		if(p.type != particle_t::fluid) continue;
+		sksat::math::vector<Float> v = p.vel;
+		for(int k=0;k<particle.size();k++){
+			auto &p_k = particle[k];
+			if(p.type == particle_t::ghost) continue;
+			auto pd = p_k.pos - p.pos;
+			auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
+			if(params::rlim2 <= dist2) continue;
+			auto vd = p.vel - p_k.vel;
+			auto fDT = vd.x*pd.x + vd.y*pd.y + vd.z*pd.z;
+			if(fDT > 0.0){
+				fDT *= params::col * params::dens[p_k.type]
+					/ ((params::dens[p.type]+params::dens[p_k.type])*dist2);
+				v -= pd*fDT;
+			}
+		}
+		p.acc = v;
+	}
+	for(auto &p : particle){
+		p.vel = p.acc;
+	}
 }
 
 // 粒子数密度から仮の圧力を求める

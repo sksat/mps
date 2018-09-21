@@ -66,7 +66,7 @@ void viscous_term(std::vector<particle_t> &particle);
 // 外力項
 void external_term(std::vector<particle_t> &particle);
 // 仮の加速度で速度・位置の更新
-void tmp_update_vp(std::vector<particle_t> &particle);
+void update_vp_tmp(std::vector<particle_t> &particle);
 // 衝突応答
 void check_collision(std::vector<particle_t> &particle);
 // 仮圧力,圧力の計算
@@ -286,7 +286,7 @@ void sim_loop(std::vector<particle_t> &particle){
 		external_term(particle);
 
 		// 仮の速度,仮の位置を更新
-//		tmp_update_vp(particle);
+		update_vp_tmp(particle);
 
 		// 衝突判定
 //		check_collision(particle);
@@ -345,5 +345,14 @@ void external_term(std::vector<particle_t> &particle){
 	for(auto &p : particle){
 		if(p.type != particle_t::fluid) continue;
 		p.acc += params::gravity; // 重力ベクトル
+	}
+}
+
+void update_vp_tmp(std::vector<particle_t> &particle){
+	for(auto &p : particle){
+		if(p.type != particle_t::fluid) continue;
+		p.vel += p.acc * params::dt;
+		p.pos += p.vel * params::dt;
+		p.acc = {0.0, 0.0, 0.0};
 	}
 }

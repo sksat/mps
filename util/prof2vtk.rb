@@ -27,6 +27,8 @@ def prof2vtk(fname1, fname2)
 		i = i + 1
 	end
 
+	puts "generating #{fname2}..."
+
 	vtk = File.open(fname2, "w")
 	vtk.puts "<?xml version='1.0' encoding='UTF-8'?>"
 	vtk.puts "<VTKFile xmlns='VTK' byte_order='LittleEndian' version='0.1' type='UnstructuredGrid'>"
@@ -40,7 +42,7 @@ def prof2vtk(fname1, fname2)
 		vtk.puts "</DataArray>"
 	vtk.puts "</Points>"
 	vtk.puts "<PointData>"
-		vtk.puts "<DataArray NumberOfComponents='1' type='Int32' Name='ParticleType' format='ascii'"
+		vtk.puts "<DataArray NumberOfComponents='1' type='Int32' Name='ParticleType' format='ascii'>"
 			for i in 0..num-1 do
 				vtk.puts type[i]
 			end

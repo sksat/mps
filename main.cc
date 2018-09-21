@@ -20,6 +20,7 @@ struct particle_t {
 	};
 	type_t type;
 	sksat::math::vector<Float> pos, vel, acc;
+	Float press;
 };
 
 std::filesystem::path out_dir; // 保存先ディレクトリ
@@ -31,6 +32,7 @@ namespace params {
 	constexpr int dim = 3;						// 次元
 	constexpr Float kinem_viscous = 0.000001;	// 動粘性係数
 	const sksat::math::vector gravity = {0.0, -9.8, 0.0}; //TODO: sksat::math::vectorのconstexprコンストラクタ
+	constexpr Float dens[] = {1000, 1000};
 	constexpr Float sound_vel = 22.0; // 音速
 
 	// 事前に計算しておく定数
@@ -39,6 +41,7 @@ namespace params {
 	Float n0;			// 粒子数密度
 	Float lamda;		// ラプラシアンモデルの係数λ
 	Float coeff_viscous;// 粘性項の係数
+	Float coeff_mkpress;// 圧力計算の係数
 
 	// 変数
 	Float time;
@@ -236,6 +239,9 @@ void set_param(const std::vector<particle_t> &particle){
 	// 粘性項の係数
 	params::coeff_viscous = 2.0 * params::kinem_viscous * params::dim / (params::n0 * params::lamda);
 
+	// 圧力計算の係数
+	params::coeff_mkpress = params::sound_vel*params::sound_vel / params::n0;
+
 	params::time = 0.0;
 
 	// パラメータの表示
@@ -244,6 +250,8 @@ void set_param(const std::vector<particle_t> &particle){
 		<< "\tparticle distance: " << params::pcl_dst << std::endl
 		<< "\tn0: " << params::n0 << std::endl
 		<< "\tλ : " << params::lamda << std::endl
+		<< "\tviscous coeff: " << params::coeff_viscous << std::endl
+		<< "\tmkpress coeff: " << params::coeff_mkpress << std::endl
 		<< "\ttime: " << params::time << std::endl
 		<< std::endl;
 }
@@ -292,7 +300,7 @@ void sim_loop(std::vector<particle_t> &particle){
 //		check_collision(particle);
 
 		// 仮の圧力
-//		make_press(particle);
+		make_press(particle);
 
 		// 加速度の修正量 <- 仮の圧力
 //		press_grad_term(particle);
@@ -301,7 +309,7 @@ void sim_loop(std::vector<particle_t> &particle){
 //		update_vp(particle);
 
 		// 圧力の修正
-//		make_press(particle);
+		make_press(particle);
 
 		iloop++;
 		params::time += params::dt;
@@ -348,11 +356,40 @@ void external_term(std::vector<particle_t> &particle){
 	}
 }
 
+// 仮の加速度を使って速度と位置を更新する
 void update_vp_tmp(std::vector<particle_t> &particle){
 	for(auto &p : particle){
 		if(p.type != particle_t::fluid) continue;
 		p.vel += p.acc * params::dt;
 		p.pos += p.vel * params::dt;
 		p.acc = {0.0, 0.0, 0.0};
+	}
+}
+
+// 剛体衝突
+void check_collision(std::vector<particle_t> &particle){
+	//TODO
+}
+
+// 粒子数密度から仮の圧力を求める
+void make_press(std::vector<particle_t> &particle){
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+		Float ni = 0.0; // 粒子数密度
+		if(p.type == particle_t::ghost) continue;
+		for(int k=0;k<particle.size();k++){
+			if(i == k) continue;
+			auto &p_k = particle[k];
+			if(p_k.type == particle_t::ghost) continue;
+			auto pd = p_k.pos - p.pos;
+			auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
+			if(params::r2 <= dist2) continue;
+			auto dist = std::sqrt(dist2);
+			ni += weight(dist, params::r);
+		}
+		p.press = (ni > params::n0)		// ni>n0なら内部粒子，そうでなければ自由表面(圧力0)
+			* (ni - params::n0)
+			* params::coeff_mkpress
+			* params::dens[p.type];
 	}
 }

@@ -81,6 +81,8 @@ inline Float weight(const Float dist, const Float re){
 	return ((re/dist) - 1.0);
 }
 
+void check_particle(std::vector<particle_t> &particle);
+
 #ifdef BUCKET
 // バケット
 inline std::shared_ptr<params::bucket_t> get_bucket(const int ix, const int iy, const int iz){
@@ -332,6 +334,17 @@ void set_param(const std::vector<particle_t> &particle){
 		<< std::endl;
 }
 
+void check_particle(std::vector<particle_t> &particle){
+	for(auto& p : particle){
+		if(	p.pos.x < params::min.x || params::max.x < p.pos.x ||
+			p.pos.y < params::min.y || params::max.y < p.pos.y ||
+			p.pos.z < params::min.z || params::max.z < p.pos.z){
+			p.type = particle_t::ghost;
+			p.vel = {0.0, 0.0, 0.0};
+		}
+	}
+}
+
 #ifdef BUCKET
 
 std::shared_ptr<params::bucket_t> get_bucket(const sksat::math::vector<Float> &pos){
@@ -394,7 +407,7 @@ void sim_loop(std::vector<particle_t> &particle){
 			std::stringstream fname;
 			fname << "output"
 				<< std::setfill('0') << std::setw(10)
-				<< iloop/10
+				<< iloop/100
 				<< ".prof";
 			auto fpath = out_dir / fname.str();
 			save_data(fpath, particle);
@@ -417,6 +430,7 @@ void sim_loop(std::vector<particle_t> &particle){
 
 		// 仮の速度,仮の位置を更新
 		update_vp_tmp(particle);
+		check_particle(particle);
 
 		// 衝突判定
 		check_collision(particle);
@@ -429,6 +443,7 @@ void sim_loop(std::vector<particle_t> &particle){
 
 		// 速度,位置を修正
 		update_vp(particle);
+		check_particle(particle);
 
 		// 圧力の修正
 		make_press(particle);

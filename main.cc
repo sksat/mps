@@ -3,9 +3,13 @@
 #include <sstream>
 #include <iomanip>
 #include <vector>
+#include <list>
+#include <memory>
 #include <filesystem>
 #include <cmath>
 #include <sksat/math/vector.hpp>
+
+#define BUCKET 1
 
 using Float = double;
 
@@ -37,11 +41,13 @@ namespace params {
 	constexpr Float col_rat = 0.2;				// 接近した粒子の反発率
 	constexpr Float col = 1.0 + col_rat;
 	constexpr Float dst_lmt_rat = 0.9;			// これ以上の接近を許さない距離の係数
+	constexpr Float crt_num = 0.1;				// クーラン条件数
 
 	// 事前に計算しておく定数
 	Float pcl_dst;			// 初期粒子間距離
 	Float r, r2;			// 影響半径とその２乗
 	Float rlim, rlim2;		// これ以上の粒子間の接近を許さない距離
+	sksat::math::vector<Float> min, max; // 計算領域
 	Float n0;				// 粒子数密度
 	Float lamda;			// ラプラシアンモデルの係数λ
 	Float coeff_viscous;	// 粘性項の係数
@@ -50,6 +56,13 @@ namespace params {
 
 	// 変数
 	Float time;
+
+	// バケット
+	using bucket_t = std::list<int>;
+	std::vector<std::shared_ptr<bucket_t>> bucket;
+	Float bsize, bsize2, bsizeinv;
+	int nbx, nby, nbz;
+	int nbxy, nbxyz;
 }
 
 // 保存先ディレクトリのチェック
@@ -67,6 +80,18 @@ void set_param(const std::vector<particle_t> &particle);
 inline Float weight(const Float dist, const Float re){
 	return ((re/dist) - 1.0);
 }
+
+#ifdef BUCKET
+// バケット
+inline std::shared_ptr<params::bucket_t> get_bucket(const int ix, const int iy, const int iz){
+	int ib = (iz*params::nbxy) + (iy*params::nbx) + ix;
+	return params::bucket[ib];
+}
+std::shared_ptr<params::bucket_t> get_bucket(const sksat::math::vector<Float> &pos);
+void make_bucket(const std::vector<particle_t> &particle);
+const std::vector<std::shared_ptr<params::bucket_t>>& near_buckets(const sksat::math::vector<Float> &pos);
+#endif
+
 // 計算のメインループ
 void sim_loop(std::vector<particle_t> &particle);
 // 粘性項
@@ -218,6 +243,39 @@ void set_param(const std::vector<particle_t> &particle){
 	params::rlim = params::pcl_dst * params::dst_lmt_rat;
 	params::rlim2= params::rlim * params::rlim;
 
+	{	// とりあえずハードコード
+		auto tmp = params::pcl_dst * 3;
+		params::min = {
+			0.0-tmp,
+			0.0-tmp,
+			0.0-tmp
+		};
+		params::max = {
+			1.0+tmp,
+			0.2+tmp,
+			0.6+params::pcl_dst*30
+		};
+	}
+
+	// bucket
+	params::bsize = params::r * (1.0 + params::crt_num);
+	params::bsize2= params::bsize * params::bsize;
+	params::bsizeinv= 1.0 / params::bsize;
+	{
+		auto tmp = params::max - params::min;
+		tmp.x /= params::bsize;
+		tmp.y /= params::bsize;
+		tmp.z /= params::bsize;
+		params::nbx = static_cast<int>(tmp.x) + 3;
+		params::nby = static_cast<int>(tmp.y) + 3;
+		params::nbz = static_cast<int>(tmp.z) + 3;
+	}
+	params::nbxy = params::nbx * params::nby;
+	params::nbxyz= params::nbx * params::nby * params::nbz;
+	params::bucket.reserve(params::nbxyz);
+	for(int i=0;i<params::nbxyz;i++)
+		params::bucket.push_back(std::make_shared<params::bucket_t>());
+
 	// 粒子を仮想的に格子状に配置
 	// n0:		粒子数密度の基準値
 	// lamda:	ラプラシアンモデルの係数λ
@@ -261,6 +319,11 @@ void set_param(const std::vector<particle_t> &particle){
 		<< "\tparticle distance: " << params::pcl_dst << std::endl
 		<< "\tr: " << params::r << std::endl
 		<< "\trlim: " << params::rlim << std::endl
+		<< "\tmin: (" << params::min.x << ", " << params::min.y << ", " << params::min.z << ")" << std::endl
+		<< "\tmax: (" << params::max.x << ", " << params::max.y << ", " << params::max.z << ")" << std::endl
+		<< "\tbucket size: " << params::bsize << std::endl
+		<< "\tbucket num: " << params::nbxyz
+		<< " (" << params::nbx << ", " << params::nby << ", " << params::nbz << ")" << std::endl
 		<< "\tn0: " << params::n0 << std::endl
 		<< "\tλ : " << params::lamda << std::endl
 		<< "\tviscous coeff: " << params::coeff_viscous << std::endl
@@ -268,6 +331,47 @@ void set_param(const std::vector<particle_t> &particle){
 		<< "\ttime: " << params::time << std::endl
 		<< std::endl;
 }
+
+#ifdef BUCKET
+
+std::shared_ptr<params::bucket_t> get_bucket(const sksat::math::vector<Float> &pos){
+	auto p = pos - params::min;
+	p = p * params::bsizeinv;
+	int ix = static_cast<int>(p.x) + 1;
+	int iy = static_cast<int>(p.y) + 1;
+	int iz = static_cast<int>(p.z) + 1;
+	return get_bucket(ix, iy, iz);
+}
+
+void make_bucket(const std::vector<particle_t> &particle){
+	for(auto &b : params::bucket) b->clear();
+
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+		if(p.type == particle_t::ghost) continue;
+		auto b = get_bucket(p.pos);
+		b->push_back(i);
+	}
+}
+
+const std::vector<std::shared_ptr<params::bucket_t>>& near_buckets(const sksat::math::vector<Float> &pos){
+	static std::vector<std::shared_ptr<params::bucket_t>> neigh(3*3*3);
+	neigh.clear();
+	auto p = (pos - params::min) * params::bsizeinv;
+	int ix = static_cast<int>(p.x) + 1;
+	int iy = static_cast<int>(p.y) + 1;
+	int iz = static_cast<int>(p.z) + 1;
+	for(int dz=-1;dz<=1;dz++){
+		for(int dy=-1;dy<=1;dy++){
+			for(int dx=-1;dx<=1;dx++){
+				neigh.push_back(get_bucket(ix+dx, iy+dy, iz+dz));
+			}
+		}
+	}
+	return neigh;
+}
+
+#endif
 
 void sim_loop(std::vector<particle_t> &particle){
 	size_t iloop = 0; // ループの回数
@@ -281,12 +385,12 @@ void sim_loop(std::vector<particle_t> &particle){
 	// メインループ
 	while(true){
 		// ログ表示
-		if(iloop % 10 == 0){
+		if(iloop % 100 == 0){
 			std::cout << "iloop=" << iloop << ", time=" << params::time << std::endl;
 		}
 
 		// ファイル保存
-		if(iloop % 10 == 0){
+		if(iloop % 100 == 0){
 			std::stringstream fname;
 			fname << "output"
 				<< std::setfill('0') << std::setw(10)
@@ -299,6 +403,11 @@ void sim_loop(std::vector<particle_t> &particle){
 		}
 
 		// 計算部分
+
+		// バケット生成
+#ifdef BUCKET
+		make_bucket(particle);
+#endif
 
 		// 仮の加速度 <- 粘性項
 		viscous_term(particle);
@@ -345,18 +454,30 @@ void viscous_term(std::vector<particle_t> &particle){
 		if(p.type != particle_t::fluid) continue;
 		auto acc = vec_zero;
 		// 周囲の粒子との計算 TODO: バケット構造で近傍粒子探索
+
+#ifndef BUCKET
 		for(int k=0;k<particle.size();k++){
-			if(k == i) continue;
-			auto &p_k = particle[k];
-			if(p_k.type == particle_t::ghost) continue; // ゴースト粒子は無視
-			auto vd = p_k.pos - p.pos;
-			auto dist2 = (vd.x*vd.x) + (vd.y*vd.y) + (vd.z*vd.z);
-			if(params::r2 <= dist2) continue; // 影響半径外の粒子は無視
-			auto dist = std::sqrt(dist2);
-			auto w = weight(dist, params::r); // 重み
-			auto vel_diff= p_k.vel - p.vel;
-			acc = vel_diff * w;
+#else
+		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
+			for(auto &k : *b){
+#endif
+				if(i == k) continue;
+				auto &p_k = particle[k];
+				if(p_k.type == particle_t::ghost) continue; // ゴースト粒子は無視
+				auto vd = p_k.pos - p.pos;
+				auto dist2 = (vd.x*vd.x) + (vd.y*vd.y) + (vd.z*vd.z);
+				if(params::r2 <= dist2) continue; // 影響半径外の粒子は無視
+				auto dist = std::sqrt(dist2);
+				auto w = weight(dist, params::r); // 重み
+				auto vel_diff= p_k.vel - p.vel;
+				acc = vel_diff * w;
+#ifdef BUCKET
+			}
 		}
+#else
+		}
+#endif
+
 		p.acc = acc * params::coeff_viscous;
 	}
 }
@@ -385,20 +506,32 @@ void check_collision(std::vector<particle_t> &particle){
 		auto &p = particle[i];
 		if(p.type != particle_t::fluid) continue;
 		sksat::math::vector<Float> v = p.vel;
+
+#ifndef BUCKET
 		for(int k=0;k<particle.size();k++){
-			auto &p_k = particle[k];
-			if(p.type == particle_t::ghost) continue;
-			auto pd = p_k.pos - p.pos;
-			auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
-			if(params::rlim2 <= dist2) continue;
-			auto vd = p.vel - p_k.vel;
-			auto fDT = vd.x*pd.x + vd.y*pd.y + vd.z*pd.z;
-			if(fDT > 0.0){
-				fDT *= params::col * params::dens[p_k.type]
-					/ ((params::dens[p.type]+params::dens[p_k.type])*dist2);
-				v -= pd*fDT;
+#else
+		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
+			for(auto &k : *b){
+#endif
+				if(i == k) continue;
+				auto &p_k = particle[k];
+				if(p.type == particle_t::ghost) continue;
+				auto pd = p_k.pos - p.pos;
+				auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
+				if(params::rlim2 <= dist2) continue;
+				auto vd = p.vel - p_k.vel;
+				auto fDT = vd.x*pd.x + vd.y*pd.y + vd.z*pd.z;
+				if(fDT > 0.0){
+					fDT *= params::col * params::dens[p_k.type]
+						/ ((params::dens[p.type]+params::dens[p_k.type])*dist2);
+					v -= pd*fDT;
+				}
+#ifdef BUCKET
 			}
 		}
+#else
+		}
+#endif
 		p.acc = v;
 	}
 	for(auto &p : particle){
@@ -412,16 +545,26 @@ void make_press(std::vector<particle_t> &particle){
 		auto &p = particle[i];
 		Float ni = 0.0; // 粒子数密度
 		if(p.type == particle_t::ghost) continue;
+#ifndef BUCKET
 		for(int k=0;k<particle.size();k++){
-			if(i == k) continue;
-			auto &p_k = particle[k];
-			if(p_k.type == particle_t::ghost) continue;
-			auto pd = p_k.pos - p.pos;
-			auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
-			if(params::r2 <= dist2) continue;
-			auto dist = std::sqrt(dist2);
-			ni += weight(dist, params::r);
+#else
+		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
+			for(auto &k : *b){
+#endif
+				if(i == k) continue;
+				auto &p_k = particle[k];
+				if(p_k.type == particle_t::ghost) continue;
+				auto pd = p_k.pos - p.pos;
+				auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
+				if(params::r2 <= dist2) continue;
+				auto dist = std::sqrt(dist2);
+				ni += weight(dist, params::r);
+#ifdef BUCKET
+			}
 		}
+#else
+		}
+#endif
 		p.press = (ni > params::n0)		// ni>n0なら内部粒子，そうでなければ自由表面(圧力0)
 			* (ni - params::n0)
 			* params::coeff_mkpress
@@ -436,28 +579,48 @@ void press_grad_term(std::vector<particle_t> &particle){
 		if(p.type != particle_t::fluid) continue;
 		Float press_min = 0.0;
 		// 影響半径内の粒子の圧力の最小値を求める
+#ifndef BUCKET
 		for(int k=0;k<particle.size();k++){
-			if(i == k) continue;
-			auto &p_k = particle[k];
-			if(p_k.type == particle_t::ghost) continue;
-			auto pd = p_k.pos - p.pos;
-			auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
-			if(params::r2 <= dist2) continue;
-			if(press_min > p.press) press_min = p.press;
+#else
+		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
+			for(auto &k : *b){
+#endif
+				if(i == k) continue;
+				auto &p_k = particle[k];
+				if(p_k.type == particle_t::ghost) continue;
+				auto pd = p_k.pos - p.pos;
+				auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
+				if(params::r2 <= dist2) continue;
+				if(press_min > p.press) press_min = p.press;
+#ifdef BUCKET
+			}
 		}
-
+#else
+		}
+#endif
 		sksat::math::vector<Float> acc = {0.0, 0.0, 0.0};
+
+#ifndef BUCKET
 		for(int k=0;k<particle.size();k++){
-			if(i == k) continue;
-			auto &p_k = particle[k];
-			if(p_k.type == particle_t::ghost) continue;
-			auto pd = p_k.pos - p.pos;
-			auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
-			if(params::r2 <= dist2) continue;
-			auto dist = std::sqrt(dist2);
-			auto w = weight(dist, params::r);
-			acc += pd * (w * (p_k.press - press_min) / dist2);
+#else
+		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
+			for(auto &k : *b){
+#endif
+				if(i == k) continue;
+				auto &p_k = particle[k];
+				if(p_k.type == particle_t::ghost) continue;
+				auto pd = p_k.pos - p.pos;
+				auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
+				if(params::r2 <= dist2) continue;
+				auto dist = std::sqrt(dist2);
+				auto w = weight(dist, params::r);
+				acc += pd * (w * (p_k.press - press_min) / dist2);
+#ifdef BUCKET
+			}
 		}
+#else
+		}
+#endif
 		p.acc = acc * (params::coeff_press_grad / params::dens[particle_t::fluid]);
 	}
 }

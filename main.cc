@@ -9,8 +9,6 @@
 #include <cmath>
 #include <sksat/math/vector.hpp>
 
-#define BUCKET 1
-
 using Float = double;
 
 // 3次元ベクトル量: vec_t -> sksat::math::vector
@@ -83,7 +81,6 @@ inline Float weight(const Float dist, const Float re){
 
 void check_particle(std::vector<particle_t> &particle);
 
-#ifdef BUCKET
 // バケット
 inline std::shared_ptr<params::bucket_t> get_bucket(const int ix, const int iy, const int iz){
 	int ib = (iz*params::nbxy) + (iy*params::nbx) + ix;
@@ -92,7 +89,6 @@ inline std::shared_ptr<params::bucket_t> get_bucket(const int ix, const int iy, 
 std::shared_ptr<params::bucket_t> get_bucket(const sksat::math::vector<Float> &pos);
 void make_bucket(const std::vector<particle_t> &particle);
 const std::vector<std::shared_ptr<params::bucket_t>>& near_buckets(const sksat::math::vector<Float> &pos);
-#endif
 
 // 計算のメインループ
 void sim_loop(std::vector<particle_t> &particle);
@@ -347,8 +343,6 @@ void check_particle(std::vector<particle_t> &particle){
 	}
 }
 
-#ifdef BUCKET
-
 std::shared_ptr<params::bucket_t> get_bucket(const sksat::math::vector<Float> &pos){
 	auto p = pos - params::min;
 	p = p * params::bsizeinv;
@@ -386,8 +380,6 @@ const std::vector<std::shared_ptr<params::bucket_t>>& near_buckets(const sksat::
 	return neigh;
 }
 
-#endif
-
 void sim_loop(std::vector<particle_t> &particle){
 	size_t iloop = 0; // ループの回数
 	size_t ifile = 0; // 保存ファイルの番号 TODO: 途中から計算する場合の初期値の設定
@@ -420,9 +412,7 @@ void sim_loop(std::vector<particle_t> &particle){
 		// 計算部分
 
 		// バケット生成
-#ifdef BUCKET
 		make_bucket(particle);
-#endif
 
 		// 仮の加速度 <- 粘性項
 		viscous_term(particle);
@@ -475,12 +465,8 @@ void viscous_term(std::vector<particle_t> &particle){
 		auto acc = vec_zero;
 		// 周囲の粒子との計算 TODO: バケット構造で近傍粒子探索
 
-#ifndef BUCKET
-		for(int k=0;k<particle.size();k++){
-#else
 		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
 			for(auto &k : *b){
-#endif
 				if(i == k) continue;
 				auto &p_k = particle[k];
 				if(p_k.type == particle_t::ghost) continue; // ゴースト粒子は無視
@@ -491,12 +477,8 @@ void viscous_term(std::vector<particle_t> &particle){
 				auto w = weight(dist, params::r); // 重み
 				auto vel_diff= p_k.vel - p.vel;
 				acc += vel_diff * w;
-#ifdef BUCKET
 			}
 		}
-#else
-		}
-#endif
 
 		p.acc = acc * params::coeff_viscous;
 	}
@@ -527,12 +509,8 @@ void check_collision(std::vector<particle_t> &particle){
 		if(p.type != particle_t::fluid) continue;
 		sksat::math::vector<Float> v = p.vel;
 
-#ifndef BUCKET
-		for(int k=0;k<particle.size();k++){
-#else
 		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
 			for(auto &k : *b){
-#endif
 				if(i == k) continue;
 				auto &p_k = particle[k];
 				if(p.type == particle_t::ghost) continue;
@@ -546,12 +524,8 @@ void check_collision(std::vector<particle_t> &particle){
 						/ ((params::dens[p.type]+params::dens[p_k.type])*dist2);
 					v -= pd*fDT;
 				}
-#ifdef BUCKET
 			}
 		}
-#else
-		}
-#endif
 		p.acc = v;
 	}
 	for(auto &p : particle){
@@ -565,12 +539,8 @@ void make_press(std::vector<particle_t> &particle){
 		auto &p = particle[i];
 		Float ni = 0.0; // 粒子数密度
 		if(p.type == particle_t::ghost) continue;
-#ifndef BUCKET
-		for(int k=0;k<particle.size();k++){
-#else
 		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
 			for(auto &k : *b){
-#endif
 				if(i == k) continue;
 				auto &p_k = particle[k];
 				if(p_k.type == particle_t::ghost) continue;
@@ -579,12 +549,8 @@ void make_press(std::vector<particle_t> &particle){
 				if(params::r2 <= dist2) continue;
 				auto dist = std::sqrt(dist2);
 				ni += weight(dist, params::r);
-#ifdef BUCKET
 			}
 		}
-#else
-		}
-#endif
 		p.press = (ni > params::n0)		// ni>n0なら内部粒子，そうでなければ自由表面(圧力0)
 			* (ni - params::n0)
 			* params::coeff_mkpress
@@ -599,12 +565,8 @@ void press_grad_term(std::vector<particle_t> &particle){
 		if(p.type != particle_t::fluid) continue;
 		Float press_min = 0.0;
 		// 影響半径内の粒子の圧力の最小値を求める
-#ifndef BUCKET
-		for(int k=0;k<particle.size();k++){
-#else
 		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
 			for(auto &k : *b){
-#endif
 				if(i == k) continue;
 				auto &p_k = particle[k];
 				if(p_k.type == particle_t::ghost) continue;
@@ -612,20 +574,12 @@ void press_grad_term(std::vector<particle_t> &particle){
 				auto dist2 = (pd.x*pd.x) + (pd.y*pd.y) + (pd.z*pd.z);
 				if(params::r2 <= dist2) continue;
 				if(press_min > p.press) press_min = p.press;
-#ifdef BUCKET
 			}
 		}
-#else
-		}
-#endif
 		sksat::math::vector<Float> acc = {0.0, 0.0, 0.0};
 
-#ifndef BUCKET
-		for(int k=0;k<particle.size();k++){
-#else
 		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
 			for(auto &k : *b){
-#endif
 				if(i == k) continue;
 				auto &p_k = particle[k];
 				if(p_k.type == particle_t::ghost) continue;
@@ -635,12 +589,8 @@ void press_grad_term(std::vector<particle_t> &particle){
 				auto dist = std::sqrt(dist2);
 				auto w = weight(dist, params::r);
 				acc += pd * (w * (p_k.press - press_min) / dist2);
-#ifdef BUCKET
 			}
 		}
-#else
-		}
-#endif
 		p.acc = acc * (params::coeff_press_grad / params::dens[particle_t::fluid]);
 	}
 }

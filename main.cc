@@ -6,6 +6,7 @@
 #include <list>
 #include <memory>
 #include <filesystem>
+#include <algorithm>
 #include <cmath>
 #include <sksat/math/vector.hpp>
 
@@ -30,7 +31,7 @@ std::filesystem::path out_dir; // 保存先ディレクトリ
 namespace params {
 	// コンパイル時に決定しておく定数
 	constexpr Float dt = 0.0005;				// 時間刻み
-	constexpr Float time_max = 1.0;
+	constexpr Float time_max = 5.0;
 	constexpr int dim = 3;						// 次元
 	constexpr Float kinem_viscous = 0.000001;	// 動粘性係数
 	const sksat::math::vector gravity = {0.0, 0.0, -9.8}; //TODO: sksat::math::vectorのconstexprコンストラクタ
@@ -88,7 +89,7 @@ inline std::shared_ptr<params::bucket_t> get_bucket(const int ix, const int iy, 
 }
 std::shared_ptr<params::bucket_t> get_bucket(const sksat::math::vector<Float> &pos);
 void make_bucket(const std::vector<particle_t> &particle);
-const std::vector<std::shared_ptr<params::bucket_t>>& near_buckets(const sksat::math::vector<Float> &pos);
+const std::vector<std::shared_ptr<params::bucket_t>> near_buckets(const sksat::math::vector<Float> &pos);
 
 // 計算のメインループ
 void sim_loop(std::vector<particle_t> &particle);
@@ -363,8 +364,8 @@ void make_bucket(const std::vector<particle_t> &particle){
 	}
 }
 
-const std::vector<std::shared_ptr<params::bucket_t>>& near_buckets(const sksat::math::vector<Float> &pos){
-	static std::vector<std::shared_ptr<params::bucket_t>> neigh(3*3*3);
+const std::vector<std::shared_ptr<params::bucket_t>> near_buckets(const sksat::math::vector<Float> &pos){
+	std::vector<std::shared_ptr<params::bucket_t>> neigh(3*3*3);
 	neigh.clear();
 	auto p = (pos - params::min) * params::bsizeinv;
 	int ix = static_cast<int>(p.x) + 1;
@@ -459,14 +460,17 @@ void sim_loop(std::vector<particle_t> &particle){
 // 粘性項
 void viscous_term(std::vector<particle_t> &particle){
 	const sksat::math::vector<Float> vec_zero = {0.0, 0.0, 0.0};
+	#pragma omp parallel for shared(particle)
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 		if(p.type != particle_t::fluid) continue;
 		auto acc = vec_zero;
 		// 周囲の粒子との計算 TODO: バケット構造で近傍粒子探索
-
-		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
-			for(auto &k : *b){
+		auto near = near_buckets(p.pos);
+		for(auto &b : near){ // 周囲のバケット
+			for(auto begin = b->begin(); begin!=b->end(); begin++){
+				auto &k = *begin;
+//			for(auto &k : *b){
 				if(i == k) continue;
 				auto &p_k = particle[k];
 				if(p_k.type == particle_t::ghost) continue; // ゴースト粒子は無視
@@ -486,7 +490,10 @@ void viscous_term(std::vector<particle_t> &particle){
 
 // 外力項
 void external_term(std::vector<particle_t> &particle){
-	for(auto &p : particle){
+	#pragma omp parallel for
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+//	for(auto &p : particle){
 		if(p.type != particle_t::fluid) continue;
 		p.acc += params::gravity; // 重力ベクトル
 	}
@@ -494,7 +501,10 @@ void external_term(std::vector<particle_t> &particle){
 
 // 仮の加速度を使って速度と位置を更新する
 void update_vp_tmp(std::vector<particle_t> &particle){
-	for(auto &p : particle){
+	#pragma omp parallel for
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+//	for(auto &p : particle){
 		if(p.type != particle_t::fluid) continue;
 		p.vel += p.acc * params::dt;
 		p.pos += p.vel * params::dt;
@@ -504,12 +514,13 @@ void update_vp_tmp(std::vector<particle_t> &particle){
 
 // 剛体衝突
 void check_collision(std::vector<particle_t> &particle){
+	#pragma omp parallel for
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 		if(p.type != particle_t::fluid) continue;
 		sksat::math::vector<Float> v = p.vel;
-
-		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
+		auto near = near_buckets(p.pos);
+		for(auto &b : near){ // 周囲のバケット
 			for(auto &k : *b){
 				if(i == k) continue;
 				auto &p_k = particle[k];
@@ -528,18 +539,25 @@ void check_collision(std::vector<particle_t> &particle){
 		}
 		p.acc = v;
 	}
-	for(auto &p : particle){
+	#pragma omp parallel for
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+//	for(auto &p : particle){
 		p.vel = p.acc;
 	}
 }
 
 // 粒子数密度から仮の圧力を求める
 void make_press(std::vector<particle_t> &particle){
+	#pragma omp parallel for
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 		Float ni = 0.0; // 粒子数密度
 		if(p.type == particle_t::ghost) continue;
-		for(auto &b : near_buckets(p.pos)){ // 周囲のバケット
+		auto near = near_buckets(p.pos);
+		for(auto b_ = near.begin(); b_!=near.end(); b_++){
+			auto& b = *b_;
+//		for(auto &b : near){ // 周囲のバケット
 			for(auto &k : *b){
 				if(i == k) continue;
 				auto &p_k = particle[k];
@@ -560,6 +578,7 @@ void make_press(std::vector<particle_t> &particle){
 
 // 圧力勾配項
 void press_grad_term(std::vector<particle_t> &particle){
+	#pragma omp parallel for
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 		if(p.type != particle_t::fluid) continue;
@@ -596,7 +615,10 @@ void press_grad_term(std::vector<particle_t> &particle){
 }
 
 void update_vp(std::vector<particle_t> &particle){
-	for(auto &p : particle){
+	#pragma omp parallel for
+	for(int i=0;i<particle.size();i++){
+		auto &p = particle[i];
+//	for(auto &p : particle){
 		if(p.type != particle_t::fluid) continue;
 		p.vel += p.acc * params::dt;
 		p.pos += p.acc * params::dt * params::dt;

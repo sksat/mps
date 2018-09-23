@@ -10,8 +10,8 @@ CC	= gcc
 CXX	= g++
 
 CFLAGS	=
-CXXFLAGS= -std=c++17 -O3
-LDFLAGS	= -lstdc++fs
+CXXFLAGS= -std=c++17 -O3 -fopenmp
+LDFLAGS	= -lstdc++fs -fopenmp
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@

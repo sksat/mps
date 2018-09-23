@@ -24,7 +24,7 @@ struct particle_t {
 	};
 	type_t type;
 	sksat::math::vector<Float> pos, vel, acc;
-	Float press;
+	Float press, pav;
 };
 
 std::filesystem::path out_dir; // 保存先ディレクトリ
@@ -71,7 +71,7 @@ bool check_outdir(const std::filesystem::path &out_dir);
 const std::string byte2str(const uintmax_t &size);
 // .profファイルの読み書き
 void load_data(const std::string &fname, std::vector<particle_t> &particle);
-void save_data(const std::string &fname, const std::vector<particle_t> &particle);
+void save_data(const std::string &fname, std::vector<particle_t> &particle);
 
 // 計算に関わる関数
 // 事前に計算できるパラメータを計算
@@ -204,15 +204,17 @@ void load_data(const std::string &fname, std::vector<particle_t> &particle){
 		<< " (fluid: " << fluid << ", wall: " << wall << ")" << std::endl;
 }
 
-void save_data(const std::string &fname, const std::vector<particle_t> &particle){
+void save_data(const std::string &fname, std::vector<particle_t> &particle){
 	std::ofstream ofs(fname);
 	ofs << particle.size() << std::endl;
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
+		p.pav /= 100;
 		ofs << i << " " << p.type << " "
 			<< p.pos.x << " " << p.pos.y << " " << p.pos.z << " "
 			<< p.vel.x << " " << p.vel.y << " " << p.vel.z << " "
-			<< 0.0 << " " << 0.0 << std::endl;
+			<< p.press << " " << p.pav << std::endl;
+		p.pav = 0.0;
 	}
 }
 
@@ -447,6 +449,9 @@ void sim_loop(std::vector<particle_t> &particle){
 
 		// 圧力の修正
 		make_press(particle);
+
+		for(auto &p : particle)
+			p.pav += p.press;
 
 		iloop++;
 		params::time += params::dt;

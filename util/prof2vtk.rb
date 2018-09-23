@@ -53,7 +53,12 @@ def prof2vtk(fname1, fname2)
 				vtk.puts "#{v}"
 			end
 		vtk.puts "</DataArray>"
-		vtk.puts "<DataArray NumberOfComponents='1' type='Float32' Name='pressave' format='ascii'>"
+		vtk.puts "<DataArray NumberOfComponents='1' type='Float32' Name='Press' format='ascii'>"
+			for i in 0..num-1 do
+				vtk.puts "#{press[i]}"
+			end
+		vtk.puts "</DataArray>"
+		vtk.puts "<DataArray NumberOfComponents='1' type='Float32' Name='PressAverage' format='ascii'>"
 			for i in 0..num-1 do
 				vtk.puts "#{pressave[i]}"
 			end

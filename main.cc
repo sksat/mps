@@ -490,7 +490,7 @@ void viscous_term(std::vector<particle_t> &particle){
 				auto dist = std::sqrt(dist2);
 				auto w = weight(dist, params::r); // 重み
 				auto vel_diff= p_k.vel - p.vel;
-				acc = vel_diff * w;
+				acc += vel_diff * w;
 #ifdef BUCKET
 			}
 		}

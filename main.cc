@@ -6,9 +6,12 @@
 #include <list>
 #include <memory>
 #include <filesystem>
-#include <algorithm>
 #include <cmath>
 #include <sksat/math/vector.hpp>
+
+#ifdef OPENMP
+#include <omp.h>
+#endif
 
 using Float = double;
 
@@ -31,7 +34,7 @@ std::filesystem::path out_dir; // 保存先ディレクトリ
 namespace params {
 	// コンパイル時に決定しておく定数
 	constexpr Float dt = 0.0005;				// 時間刻み
-	constexpr Float time_max = 5.0;
+	constexpr Float time_max = 0.1;
 	constexpr int dim = 3;						// 次元
 	constexpr Float kinem_viscous = 0.000001;	// 動粘性係数
 	const sksat::math::vector gravity = {0.0, 0.0, -9.8}; //TODO: sksat::math::vectorのconstexprコンストラクタ
@@ -114,6 +117,10 @@ int main(int argc, char **argv){
 	std::vector<particle_t> particle;
 
 	if(argc != 3) return -1;
+
+#ifdef OPENMP
+	std::cout << "[OpenMP] num_procs: " << omp_get_num_procs() << std::endl;
+#endif
 
 	// output directoryの準備
 	out_dir = argv[2];
@@ -460,7 +467,9 @@ void sim_loop(std::vector<particle_t> &particle){
 // 粘性項
 void viscous_term(std::vector<particle_t> &particle){
 	const sksat::math::vector<Float> vec_zero = {0.0, 0.0, 0.0};
-	#pragma omp parallel for shared(particle)
+#ifdef OPENMP
+	#pragma omp parallel for
+#endif
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 		if(p.type != particle_t::fluid) continue;
@@ -490,7 +499,9 @@ void viscous_term(std::vector<particle_t> &particle){
 
 // 外力項
 void external_term(std::vector<particle_t> &particle){
+#ifdef OPENMP
 	#pragma omp parallel for
+#endif
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 //	for(auto &p : particle){
@@ -501,7 +512,9 @@ void external_term(std::vector<particle_t> &particle){
 
 // 仮の加速度を使って速度と位置を更新する
 void update_vp_tmp(std::vector<particle_t> &particle){
+#ifdef OPENMP
 	#pragma omp parallel for
+#endif
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 //	for(auto &p : particle){
@@ -514,7 +527,13 @@ void update_vp_tmp(std::vector<particle_t> &particle){
 
 // 剛体衝突
 void check_collision(std::vector<particle_t> &particle){
-	#pragma omp parallel for
+#ifdef OPENMP
+#pragma omp parallel
+#endif
+{
+#ifdef OPENMP
+	#pragma omp for
+#endif
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 		if(p.type != particle_t::fluid) continue;
@@ -539,17 +558,22 @@ void check_collision(std::vector<particle_t> &particle){
 		}
 		p.acc = v;
 	}
-	#pragma omp parallel for
+#ifdef OPENMP
+	#pragma omp for
+#endif
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 //	for(auto &p : particle){
 		p.vel = p.acc;
 	}
+} // omp parallel
 }
 
 // 粒子数密度から仮の圧力を求める
 void make_press(std::vector<particle_t> &particle){
+#ifdef OPENMP
 	#pragma omp parallel for
+#endif
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 		Float ni = 0.0; // 粒子数密度
@@ -578,7 +602,9 @@ void make_press(std::vector<particle_t> &particle){
 
 // 圧力勾配項
 void press_grad_term(std::vector<particle_t> &particle){
+#ifdef OPENMP
 	#pragma omp parallel for
+#endif
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 		if(p.type != particle_t::fluid) continue;
@@ -615,7 +641,9 @@ void press_grad_term(std::vector<particle_t> &particle){
 }
 
 void update_vp(std::vector<particle_t> &particle){
+#ifdef OPENMP
 	#pragma omp parallel for
+#endif
 	for(int i=0;i<particle.size();i++){
 		auto &p = particle[i];
 //	for(auto &p : particle){

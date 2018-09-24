@@ -34,7 +34,7 @@ std::filesystem::path out_dir; // 保存先ディレクトリ
 namespace params {
 	// コンパイル時に決定しておく定数
 	constexpr Float dt = 0.0005;				// 時間刻み
-	constexpr Float time_max = 0.1;
+	constexpr Float time_max = 1.0;
 	constexpr int dim = 3;						// 次元
 	constexpr Float kinem_viscous = 0.000001;	// 動粘性係数
 	const sksat::math::vector gravity = {0.0, 0.0, -9.8}; //TODO: sksat::math::vectorのconstexprコンストラクタ
@@ -123,8 +123,10 @@ int main(int argc, char **argv){
 #endif
 
 	// output directoryの準備
+#ifndef BENCH
 	out_dir = argv[2];
 	if(!check_outdir(out_dir)) return -1;
+#endif
 
 	load_data(argv[1], particle);
 
@@ -399,13 +401,16 @@ void sim_loop(std::vector<particle_t> &particle){
 	begin = clock::now();
 	// メインループ
 	while(true){
+#ifndef BENCH
 		// ログ表示
-		if(iloop % 100 == 0){
+		if(iloop % 10 == 0){
 			std::cout << "iloop=" << iloop << ", time=" << params::time << std::endl;
 		}
+#endif // BENCH
 
 		// ファイル保存
-		if(iloop % 100 == 0){
+		if(iloop % 10 == 0){
+#ifndef BENCH
 			std::stringstream fname;
 			fname << "output"
 				<< std::setfill('0') << std::setw(10)
@@ -413,6 +418,7 @@ void sim_loop(std::vector<particle_t> &particle){
 				<< ".prof";
 			auto fpath = out_dir / fname.str();
 			save_data(fpath, particle);
+#endif // BENCH
 			// 終了条件
 			if(params::time >= params::time_max) break;
 		}

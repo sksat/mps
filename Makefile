@@ -9,16 +9,34 @@ D_PLOT		= 1
 CC	= gcc
 CXX	= g++
 
-CFLAGS	=
-CXXFLAGS= -std=c++17 -O3 -march=native
+OPT = -O3 -march=native
+
+CFLAGS	= $(OPT)
+CXXFLAGS= -std=c++17 $(OPT)
 LDFLAGS	= -lstdc++fs
 
-OMP= use
+BENCH= off
+BENCH_NUM=10
+BENCH_STATUS=$(CC) $(OPT)
+BENCH_LIST= -O0,\
+			-O1,\
+			-O2,\
+			-O2 -march=native,\
+			-O3,\
+			-O3 -march=native,\
+			-Ofast,\
+			-Ofast -march=native
+ifeq ($(BENCH),on)
+	CFLAGS += -DBENCH
+	CXXFLAGS += -DBENCH
+endif
 
-ifeq ($(OMP),use)
+OMP= on
+ifeq ($(OMP),on)
 	CFLAGS	+= -fopenmp -DOPENMP
 	CXXFLAGS+= -fopenmp -DOPENMP
 	LDFLAGS	+= -fopenmp
+	BENCH_STATUS+=:openmp
 endif
 
 %.o: %.c
@@ -40,6 +58,25 @@ src_only:
 full:
 	make clean
 	make
+full_run:
+	make full
+	make run
+
+bench:
+	make full BENCH=on
+	@t=0.0; \
+	  for i in {1..$(BENCH_NUM)}; \
+	  { ti=`make run | grep "simulation time" | grep -o "[.0-9]*"`; t=`echo "scale=10; $$t+$$ti" | bc`; }; \
+	  echo "[`echo $(BENCH_STATUS)`] time:`echo "scale=10; $$t/$(BENCH_NUM)" | bc`"
+
+bench_opt:
+	@IFS=',';for opt in `echo $(BENCH_LIST)`; { make -s bench OPT="$$opt"; }
+
+bench_all:
+	@make bench_opt -s CC=gcc	CXX=g++		OMP=off
+	@make bench_opt -s CC=clang	CXX=clang++	OMP=off
+	@make bench_opt -s CC=gcc	CXX=g++		OMP=on
+	@make bench_opt -s CC=clang	CXX=clang++	OMP=on
 
 run: $(TARGET)
 	./$< input/dambreak.prof $(OUT_DIR)

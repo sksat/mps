@@ -69,7 +69,9 @@ bench:
 	  echo "[`echo $(BENCH_STATUS)`] time:`echo "scale=10; $$t/$(BENCH_NUM)" | bc`"
 
 bench_opt:
-	@IFS=',';for opt in `echo $(BENCH_LIST)`; { make -s bench OPT="$$opt"; }
+	@if sh -c "type $(CC) > /dev/null 2>&1"; then \
+		IFS=',';for opt in `echo $(BENCH_LIST)`; { make bench OPT="$$opt"; }; \
+		else echo "$(CC) is not installed. skip."; fi
 
 bench_all:
 	@make bench_opt -s CC=gcc	OMP=off

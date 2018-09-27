@@ -7,13 +7,12 @@ PLOT_SIZE	= 2.5
 D_PLOT		= 1
 
 CC	= gcc
-CXX	= g++
 
 OPT = -O3 -march=native
 
 CFLAGS	= $(OPT)
 CXXFLAGS= -std=c++17 $(OPT)
-LDFLAGS	= -lstdc++fs
+LDFLAGS	= -lm -lstdc++ -lstdc++fs
 
 BENCH= off
 BENCH_NUM=10
@@ -43,7 +42,7 @@ endif
 	$(CC) $(CFLAGS) -c $< -o $@
 
 %.o: %.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CC) $(CXXFLAGS) -c $< -o $@
 
 default: $(TARGET)
 
@@ -73,10 +72,12 @@ bench_opt:
 	@IFS=',';for opt in `echo $(BENCH_LIST)`; { make -s bench OPT="$$opt"; }
 
 bench_all:
-	@make bench_opt -s CC=gcc	CXX=g++		OMP=off
-	@make bench_opt -s CC=clang	CXX=clang++	OMP=off
-	@make bench_opt -s CC=gcc	CXX=g++		OMP=on
-	@make bench_opt -s CC=clang	CXX=clang++	OMP=on
+	@make bench_opt -s CC=gcc	OMP=off
+	@make bench_opt -s CC=clang	OMP=off
+	@make bench_opt -s CC=icc	OMP=off
+	@make bench_opt -s CC=gcc	OMP=on
+	@make bench_opt -s CC=clang	OMP=on
+	@make bench_opt -s CC=icc	OMP=on
 
 run: $(TARGET)
 	./$< input/dambreak.prof $(OUT_DIR)
@@ -88,4 +89,4 @@ vtk:
 	ls $(OUT_DIR)/*.prof | xargs -i util/prof2vtk.rb "{}"
 
 $(TARGET): $(OBJS)
-	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+	$(CC) -o $@ $(OBJS) $(LDFLAGS)

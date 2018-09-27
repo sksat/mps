@@ -37,7 +37,7 @@ namespace params {
 	constexpr Float time_max = 1.0;
 	constexpr int dim = 3;						// 次元
 	constexpr Float kinem_viscous = 0.000001;	// 動粘性係数
-	const sksat::math::vector gravity = {0.0, 0.0, -9.8}; //TODO: sksat::math::vectorのconstexprコンストラクタ
+	const sksat::math::vector<Float> gravity = {0.0, 0.0, -9.8}; //TODO: sksat::math::vectorのconstexprコンストラクタ
 	constexpr Float dens[] = {1000, 1000};		// 密度
 	constexpr Float sound_vel = 22.0;			// 音速
 	constexpr Float col_rat = 0.2;				// 接近した粒子の反発率

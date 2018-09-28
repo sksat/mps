@@ -1,5 +1,5 @@
 TARGET	= mps
-OBJS	= main.o
+OBJS	= main.o params.o simulation.o file.o
 
 OUT_DIR	= out
 
